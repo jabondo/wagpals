@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-expo-app@latest . --template blank 2>&12)",
+      "Bash(npx create-expo-app@latest . --template blank --yes 2>&1 || true)",
+      "Bash(npm install 2>&1)",
+      "Bash(node -e \"\nconst fs = require\\('fs'\\);\n// Create minimal 1x1 transparent PNG as placeholder for icon/splash/adaptive-icon\n// Expo will replace these with real assets before publishing\nconst placeholder = Buffer.from\\('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'\\);\n['assets/icon.png','assets/splash.png','assets/adaptive-icon.png','assets/favicon.png'].forEach\\(f => {\n  if \\(!fs.existsSync\\(f\\)\\) fs.writeFileSync\\(f, placeholder\\);\n}\\);\nconsole.log\\('Placeholder assets created'\\);\n\")",
+      "Bash(npm install -g @expo/ngrok 2>&1 | tail -3)"
+    ]
+  }
+}
