@@ -144,12 +144,12 @@ export default function HomeMapScreen({ navigation }) {
     setRequesting(true);
     try {
       await addDoc(collection(db, 'playdateRequests'), {
-        fromOwnerId: auth.currentUser.uid,
-        toOwnerId:   selectedDog.ownerId,
-        dogId:       selectedDog.id,
-        dogName:     selectedDog.name,
+        fromUserId:  auth.currentUser.uid,
+        fromDogName: selectedDog.name,
+        toUserId:    selectedDog.ownerId,
+        toDogId:     selectedDog.id,
         status:      'pending',
-        createdAt:   serverTimestamp(),
+        timestamp:   serverTimestamp(),
       });
 
       // Notify the dog's owner
@@ -414,7 +414,7 @@ export default function HomeMapScreen({ navigation }) {
               {/* Dog photo + name row */}
               <View style={styles.sheetTopRow}>
                 <View style={styles.sheetPhotoWrapper}>
-                  <DogAvatar uri={selectedDog.photoUri} name={selectedDog.name} size={84} />
+                  <DogAvatar uri={selectedDog.photoURL ?? selectedDog.photoUri} name={selectedDog.name} size={84} />
                   {/* Vaccination badge */}
                   <View style={[
                     styles.vacBadge,

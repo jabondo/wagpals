@@ -21,7 +21,8 @@
         "NSLocationWhenInUseUsageDescription": "WagPals uses your location to find nearby dogs for playdates.",
         "NSLocationAlwaysUsageDescription": "WagPals uses your location to find nearby dogs for playdates.",
         "NSPhotoLibraryUsageDescription": "WagPals needs access to your photos to upload your dog's profile picture.",
-        "NSCameraUsageDescription": "WagPals needs camera access to take your dog's profile picture."
+        "NSCameraUsageDescription": "WagPals needs camera access to take your dog's profile picture.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -58,7 +59,6 @@
           "sounds": []
         }
       ],
-      "expo-dev-client",
       "expo-web-browser"
     ],
     "extra": {

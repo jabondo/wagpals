@@ -14,7 +14,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { collection, addDoc, doc, updateDoc, setDoc, arrayUnion } from 'firebase/firestore';
-import { auth, db } from '../config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '../config/firebase';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import Tag from '../components/Tag';
@@ -254,20 +255,30 @@ export default function DogProfileCreator({ navigation, route, onDogCreated }) {
         },
       };
 
+      let dogId;
       if (isEditing) {
-        await updateDoc(doc(db, 'dogs', existingDog.id), dogData);
-        console.log('[DogProfileCreator] Updated dog:', existingDog.id);
+        dogId = existingDog.id;
+        await updateDoc(doc(db, 'dogs', dogId), dogData);
       } else {
         dogData.createdAt = new Date().toISOString();
         const dogRef = await addDoc(collection(db, 'dogs'), dogData);
-        console.log('[DogProfileCreator] Created dog:', dogRef.id, 'for owner:', uid);
-        await setDoc(doc(db, 'owners', uid), { dogs: arrayUnion(dogRef.id) }, { merge: true });
-        console.log('[DogProfileCreator] Owner doc updated with dog id:', dogRef.id);
+        dogId = dogRef.id;
+        await setDoc(doc(db, 'owners', uid), { dogs: arrayUnion(dogId) }, { merge: true });
       }
 
-      // Both writes confirmed — now navigate
+      // Upload photo to Storage if the current URI is a local file (not already a remote URL)
+      if (photoUri && !photoUri.startsWith('https://')) {
+        const response = await fetch(photoUri);
+        const blob = await response.blob();
+        const storageRef = ref(storage, `dogPhotos/${uid}/${dogId}.jpg`);
+        await uploadBytes(storageRef, blob);
+        const downloadURL = await getDownloadURL(storageRef);
+        // Save photoURL (canonical) and update photoUri for backward-compat with existing map code
+        await updateDoc(doc(db, 'dogs', dogId), { photoURL: downloadURL, photoUri: downloadURL });
+      }
+
       if (isOnboarding) {
-        onDogCreated?.();          // flip hasDog=true in App.js immediately
+        onDogCreated?.();
         navigation.replace('Main');
       } else {
         navigation.goBack();

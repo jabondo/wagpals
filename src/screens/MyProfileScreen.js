@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,8 +13,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { signOut } from 'firebase/auth';
 import {
   doc, getDoc,
-  collection, query, where, getDocs, orderBy,
-  updateDoc,
+  collection, query, where,
+  onSnapshot, addDoc, updateDoc, serverTimestamp,
 } from 'firebase/firestore';
 import * as Location from 'expo-location';
 import { auth, db } from '../config/firebase';
@@ -32,40 +32,57 @@ function coreVaccineStatus(health) {
     : 'incomplete';
 }
 
-// ─── Playdate status badge config ─────────────────────────────────────────
-const STATUS_CONFIG = {
-  pending:   { label: 'Pending',   bg: '#FEF3C7', text: '#92400E' },
-  confirmed: { label: 'Confirmed', bg: '#D1FAE5', text: '#065F46' },
-  declined:  { label: 'Declined',  bg: '#FEE2E2', text: '#991B1B' },
-};
-
 // ─── Screen ───────────────────────────────────────────────────────────────
 export default function MyProfileScreen({ navigation }) {
-  const [owner,          setOwner]          = useState(null);
-  const [dogs,           setDogs]           = useState([]);
-  const [sentRequests,   setSentRequests]   = useState([]);
-  const [recvRequests,   setRecvRequests]   = useState([]);
-  const [loading,        setLoading]        = useState(true);
-  const [sharingLoc,     setSharingLoc]     = useState(false);
+  const [owner,            setOwner]            = useState(null);
+  const [dogs,             setDogs]             = useState([]);
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [playdates,        setPlaydates]        = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [sharingLoc,       setSharingLoc]       = useState(false);
 
   const uid = auth.currentUser?.uid;
 
-  // Reload whenever the tab comes into focus (e.g. after editing a dog)
+  // ── onSnapshot listeners (persistent, not tied to focus) ──────────────
+  useEffect(() => {
+    if (!uid) return;
+
+    // Incoming pending requests where toUserId == current user
+    const reqQ = query(
+      collection(db, 'playdateRequests'),
+      where('toUserId', '==', uid),
+      where('status', '==', 'pending'),
+    );
+    const unsubReq = onSnapshot(reqQ, (snap) => {
+      setIncomingRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+
+    // Upcoming playdates where current user is a participant
+    const pdQ = query(
+      collection(db, 'playdates'),
+      where('participants', 'array-contains', uid),
+    );
+    const unsubPd = onSnapshot(pdQ, (snap) => {
+      setPlaydates(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsubReq(); unsubPd(); };
+  }, [uid]);
+
+  // Reload owner + dogs whenever the tab comes into focus
   useFocusEffect(
     useCallback(() => {
-      loadAll();
+      loadOwnerAndDogs();
     }, [uid])
   );
 
-  async function loadAll() {
+  async function loadOwnerAndDogs() {
     if (!uid) return;
     try {
-      // Owner doc
       const ownerSnap = await getDoc(doc(db, 'owners', uid));
       const ownerData = ownerSnap.exists() ? ownerSnap.data() : {};
       setOwner(ownerData);
 
-      // Dogs
       if (ownerData.dogs?.length) {
         const snaps = await Promise.all(
           ownerData.dogs.map((id) => getDoc(doc(db, 'dogs', id)))
@@ -74,28 +91,8 @@ export default function MyProfileScreen({ navigation }) {
       } else {
         setDogs([]);
       }
-
-      // Playdate requests — sent by me
-      const sentSnap = await getDocs(
-        query(
-          collection(db, 'playdateRequests'),
-          where('fromOwnerId', '==', uid),
-          where('status', 'in', ['pending', 'confirmed'])
-        )
-      );
-      setSentRequests(sentSnap.docs.map((d) => ({ id: d.id, ...d.data(), direction: 'sent' })));
-
-      // Playdate requests — received by me
-      const recvSnap = await getDocs(
-        query(
-          collection(db, 'playdateRequests'),
-          where('toOwnerId', '==', uid),
-          where('status', 'in', ['pending', 'confirmed'])
-        )
-      );
-      setRecvRequests(recvSnap.docs.map((d) => ({ id: d.id, ...d.data(), direction: 'received' })));
     } catch (err) {
-      console.error('[MyProfile] loadAll error:', err.message);
+      console.error('[MyProfile] loadOwnerAndDogs error:', err.message);
     } finally {
       setLoading(false);
     }
@@ -128,18 +125,27 @@ export default function MyProfileScreen({ navigation }) {
 
   async function handleAcceptRequest(request) {
     try {
-      await updateDoc(doc(db, 'playdateRequests', request.id), { status: 'confirmed' });
+      await updateDoc(doc(db, 'playdateRequests', request.id), { status: 'accepted' });
+
+      // Create a confirmed playdate doc
+      await addDoc(collection(db, 'playdates'), {
+        fromUserId:   request.fromUserId,
+        toUserId:     request.toUserId,
+        toDogId:      request.toDogId,
+        fromDogName:  request.fromDogName,
+        participants: [request.fromUserId, request.toUserId],
+        status:       'upcoming',
+        timestamp:    serverTimestamp(),
+      });
 
       // Notify the person who sent the request
-      const token = await getOwnerPushToken(request.fromOwnerId);
+      const token = await getOwnerPushToken(request.fromUserId);
       await sendPushNotification(
         token,
-        'Playdate Confirmed! 🐾',
-        `Your playdate request for ${request.dogName} has been accepted!`,
+        'Playdate Accepted! 🐾',
+        `Your playdate request for ${request.fromDogName} has been accepted!`,
         { type: 'playdate' }
       );
-
-      loadAll();
     } catch (err) {
       console.error('[MyProfile] accept error:', err.message);
       Alert.alert('Error', 'Could not accept request. Please try again.');
@@ -149,7 +155,6 @@ export default function MyProfileScreen({ navigation }) {
   async function handleDeclineRequest(request) {
     try {
       await updateDoc(doc(db, 'playdateRequests', request.id), { status: 'declined' });
-      loadAll();
     } catch (err) {
       console.error('[MyProfile] decline error:', err.message);
       Alert.alert('Error', 'Could not decline request. Please try again.');
@@ -170,8 +175,6 @@ export default function MyProfileScreen({ navigation }) {
       </View>
     );
   }
-
-  const allRequests = [...sentRequests, ...recvRequests];
 
   return (
     <ScrollView
@@ -227,21 +230,30 @@ export default function MyProfileScreen({ navigation }) {
         )}
       </Section>
 
-      {/* ── Upcoming playdates ── */}
-      <Section title="Upcoming Playdates">
-        {allRequests.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Ionicons name="calendar-outline" size={36} color={colors.mediumGray} />
-            <Text style={styles.emptyText}>No upcoming playdates yet.</Text>
-          </View>
-        ) : (
-          allRequests.map((req) => (
-            <PlaydateRow
+      {/* ── Playdate Requests (incoming, pending) ── */}
+      {incomingRequests.length > 0 && (
+        <Section title="Playdate Requests">
+          {incomingRequests.map((req) => (
+            <RequestRow
               key={req.id}
               request={req}
               onAccept={() => handleAcceptRequest(req)}
               onDecline={() => handleDeclineRequest(req)}
             />
+          ))}
+        </Section>
+      )}
+
+      {/* ── Upcoming playdates ── */}
+      <Section title="Upcoming Playdates">
+        {playdates.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Ionicons name="calendar-outline" size={36} color={colors.mediumGray} />
+            <Text style={styles.emptyText}>No upcoming playdates yet.</Text>
+          </View>
+        ) : (
+          playdates.map((pd) => (
+            <PlaydateRow key={pd.id} playdate={pd} currentUid={uid} />
           ))
         )}
       </Section>
@@ -309,7 +321,7 @@ function DogCard({ dog, onEdit }) {
     <View style={styles.dogCard}>
       {/* Photo + vac badge */}
       <View style={styles.dogPhotoWrap}>
-        <DogAvatar uri={dog.photoUri} name={dog.name} size={72} />
+        <DogAvatar uri={dog.photoURL ?? dog.photoUri} name={dog.name} size={72} />
         <View style={[
           styles.vacDot,
           vacStatus === 'current' ? styles.vacDotGreen : styles.vacDotYellow,
@@ -369,50 +381,61 @@ function DogCard({ dog, onEdit }) {
   );
 }
 
-// ─── Playdate row ──────────────────────────────────────────────────────────
-function PlaydateRow({ request, onAccept, onDecline }) {
-  const cfg       = STATUS_CONFIG[request.status] ?? STATUS_CONFIG.pending;
-  const isSent    = request.direction === 'sent';
-  const isPending = request.status === 'pending';
-  const createdAt = request.createdAt?.toDate?.() ?? null;
-  const showActions = !isSent && isPending;
+// ─── Incoming request row (pending, with Accept / Decline) ─────────────────
+function RequestRow({ request, onAccept, onDecline }) {
+  const sentAt = request.timestamp?.toDate?.() ?? null;
 
   return (
     <View style={styles.playdateCard}>
-      <View style={[styles.playdateIcon, { backgroundColor: isSent ? '#FFF3E0' : '#F0FDF4' }]}>
-        <Ionicons
-          name={isSent ? 'send' : 'paw'}
-          size={18}
-          color={isSent ? colors.primary : colors.success}
-        />
+      <View style={[styles.playdateIcon, { backgroundColor: '#F0FDF4' }]}>
+        <Ionicons name="paw" size={18} color={colors.success} />
       </View>
       <View style={styles.playdateInfo}>
-        <Text style={styles.playdateDog}>{request.dogName}</Text>
-        <Text style={styles.playdateDir}>
-          {isSent ? 'You requested a playdate' : 'Playdate requested with you'}
-        </Text>
-        {createdAt && (
+        <Text style={styles.playdateDog}>{request.fromDogName}</Text>
+        <Text style={styles.playdateDir}>Wants to have a playdate!</Text>
+        {sentAt && (
           <Text style={styles.playdateTime}>
-            {createdAt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+            {sentAt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
           </Text>
         )}
-        {showActions && (
-          <View style={styles.requestActions}>
-            <TouchableOpacity style={styles.acceptBtn} onPress={onAccept} activeOpacity={0.8}>
-              <Ionicons name="checkmark" size={13} color={colors.white} />
-              <Text style={styles.acceptBtnText}>Accept</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.declineBtn} onPress={onDecline} activeOpacity={0.8}>
-              <Text style={styles.declineBtnText}>Decline</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.requestActions}>
+          <TouchableOpacity style={styles.acceptBtn} onPress={onAccept} activeOpacity={0.8}>
+            <Ionicons name="checkmark" size={13} color={colors.white} />
+            <Text style={styles.acceptBtnText}>Accept</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.declineBtn} onPress={onDecline} activeOpacity={0.8}>
+            <Text style={styles.declineBtnText}>Decline</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Upcoming playdate row ─────────────────────────────────────────────────
+function PlaydateRow({ playdate, currentUid }) {
+  const isInitiator = playdate.fromUserId === currentUid;
+  const scheduledAt = playdate.timestamp?.toDate?.() ?? null;
+
+  return (
+    <View style={styles.playdateCard}>
+      <View style={[styles.playdateIcon, { backgroundColor: '#FFF3E0' }]}>
+        <Ionicons name="calendar" size={18} color={colors.primary} />
+      </View>
+      <View style={styles.playdateInfo}>
+        <Text style={styles.playdateDog}>{playdate.fromDogName}</Text>
+        <Text style={styles.playdateDir}>
+          {isInitiator ? 'You requested this playdate' : 'Playdate scheduled with you'}
+        </Text>
+        {scheduledAt && (
+          <Text style={styles.playdateTime}>
+            {scheduledAt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </Text>
         )}
       </View>
-      {!showActions && (
-        <View style={[styles.statusPill, { backgroundColor: cfg.bg }]}>
-          <Text style={[styles.statusText, { color: cfg.text }]}>{cfg.label}</Text>
-        </View>
-      )}
+      <View style={[styles.statusPill, { backgroundColor: '#D1FAE5' }]}>
+        <Text style={[styles.statusText, { color: '#065F46' }]}>Upcoming</Text>
+      </View>
     </View>
   );
 }
@@ -567,7 +590,7 @@ const styles = StyleSheet.create({
   },
   editBtnText: { fontSize: 13, fontWeight: '700', color: colors.white },
 
-  // Playdate card
+  // Playdate / request card
   playdateCard: {
     flexDirection: 'row',
     alignItems: 'center',
