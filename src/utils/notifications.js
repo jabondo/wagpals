@@ -15,39 +15,58 @@ Notifications.setNotificationHandler({
 
 // ── Register device and save token to Firestore ──────────────────────────────
 export async function registerForPushNotifications() {
-  if (!Device.isDevice) {
-    console.log('[Notifications] Simulator detected — push token skipped');
+  try {
+    console.log('[Notifications] registerForPushNotifications() started');
+    console.log('[Notifications] Device.isDevice:', Device.isDevice, '| Device.deviceName:', Device.deviceName);
+    console.log('[Notifications] Running on OS:', Platform.OS);
+
+    if (Platform.OS === 'android') {
+      console.log('[Notifications] Setting Android notification channel...');
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'WagPals',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: true,
+      });
+      console.log('[Notifications] Android channel set');
+    }
+
+    console.log('[Notifications] Checking existing permission status...');
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    console.log('[Notifications] Existing permission status:', existing);
+
+    let finalStatus = existing;
+    if (existing !== 'granted') {
+      console.log('[Notifications] Requesting permission from user...');
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+      console.log('[Notifications] Permission request result:', status);
+    } else {
+      console.log('[Notifications] Permission already granted, skipping prompt');
+    }
+
+    if (finalStatus !== 'granted') {
+      console.log('[Notifications] Permission denied (finalStatus:', finalStatus, ') — push disabled');
+      return null;
+    }
+    console.log('[Notifications] Permission granted, fetching Expo push token...');
+
+    const { data: token } = await Notifications.getExpoPushTokenAsync();
+    console.log('[Notifications] Expo push token:', token);
+
+    const uid = auth.currentUser?.uid;
+    console.log('[Notifications] Saving token to Firestore for uid:', uid);
+    if (uid && token) {
+      await setDoc(doc(db, 'owners', uid), { expoPushToken: token }, { merge: true });
+      console.log('[Notifications] Token saved to Firestore successfully');
+    } else {
+      console.log('[Notifications] Skipped Firestore save — uid:', uid, 'token:', token);
+    }
+
+    return token;
+  } catch (err) {
+    console.error('[Notifications] registerForPushNotifications() failed:', err.message, '\nFull error:', err);
     return null;
   }
-
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'WagPals',
-      importance: Notifications.AndroidImportance.MAX,
-      sound: true,
-    });
-  }
-
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let finalStatus = existing;
-  if (existing !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  if (finalStatus !== 'granted') {
-    console.log('[Notifications] Permission denied — push disabled');
-    return null;
-  }
-
-  const { data: token } = await Notifications.getExpoPushTokenAsync();
-  console.log('[Notifications] Expo push token:', token);
-
-  const uid = auth.currentUser?.uid;
-  if (uid && token) {
-    await setDoc(doc(db, 'owners', uid), { expoPushToken: token }, { merge: true });
-  }
-
-  return token;
 }
 
 // ── Fetch push token for any owner ───────────────────────────────────────────
