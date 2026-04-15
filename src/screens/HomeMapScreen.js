@@ -513,9 +513,14 @@ export default function HomeMapScreen({ navigation }) {
   // ── Derived ──
   const sheetOpen = !!(selectedDog || selectedEstablishment);
 
+  // Guard: parse coordinates and drop any establishment with invalid lat/lng
+  const validEstablishments = establishments
+    .map((e) => ({ ...e, latitude: parseFloat(e.latitude), longitude: parseFloat(e.longitude) }))
+    .filter((e) => isFinite(e.latitude) && isFinite(e.longitude));
+
   const filteredEstablishments = activeFilter === 'all'
-    ? establishments
-    : establishments.filter((e) => {
+    ? validEstablishments
+    : validEstablishments.filter((e) => {
         const cat = (e.category ?? '').toLowerCase().replace(/[\s_-]/g, '');
         return cat.includes(activeFilter.toLowerCase());
       });
