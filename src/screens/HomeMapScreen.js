@@ -168,7 +168,10 @@ export default function HomeMapScreen({ navigation }) {
   // ── Nearby dogs listener ──
   useEffect(() => {
     if (!location) return;
-    const q = query(collection(db, 'dogs'), where('ownerId', '!=', auth.currentUser?.uid));
+    const uid = auth.currentUser?.uid ?? null;
+    const q = uid
+      ? query(collection(db, 'dogs'), where('ownerId', '!=', uid))
+      : query(collection(db, 'dogs'));
     const unsub = onSnapshot(q, (snap) => {
       const dogs = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -187,6 +190,8 @@ export default function HomeMapScreen({ navigation }) {
           ),
         }));
       setNearbyDogs(dogs);
+    }, (error) => {
+      console.warn('Dogs listener error:', error);
     });
     return unsub;
   }, [location]);
@@ -196,6 +201,8 @@ export default function HomeMapScreen({ navigation }) {
     const q = query(collection(db, 'establishments'), where('status', '==', 'active'));
     const unsub = onSnapshot(q, (snap) => {
       setEstablishments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    }, (error) => {
+      console.warn('Establishments listener error:', error);
     });
     return unsub;
   }, []);
