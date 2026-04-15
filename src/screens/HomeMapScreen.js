@@ -24,6 +24,7 @@ import {
   getDoc, doc, addDoc, getDocs, runTransaction,
   serverTimestamp, orderBy, limit,
 } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
 import { getDistanceMiles, formatDistance } from '../utils/distance';
 import { getOwnerPushToken, sendPushNotification } from '../utils/notifications';
@@ -115,6 +116,7 @@ export default function HomeMapScreen({ navigation }) {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [nearbyDogs,       setNearbyDogs]       = useState([]);
   const [loading,          setLoading]          = useState(true);
+  const [currentUid,       setCurrentUid]       = useState(auth.currentUser?.uid ?? null);
 
   // Establishments
   const [establishments,        setEstablishments]        = useState([]);
@@ -165,12 +167,19 @@ export default function HomeMapScreen({ navigation }) {
     })();
   }, []);
 
+  // ── Track auth state so dogs listener re-runs if auth restores after location ──
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setCurrentUid(user?.uid ?? null);
+    });
+    return unsub;
+  }, []);
+
   // ── Nearby dogs listener ──
   useEffect(() => {
     if (!location) return;
-    const uid = auth.currentUser?.uid ?? null;
-    const q = uid
-      ? query(collection(db, 'dogs'), where('ownerId', '!=', uid))
+    const q = currentUid
+      ? query(collection(db, 'dogs'), where('ownerId', '!=', currentUid))
       : query(collection(db, 'dogs'));
     const unsub = onSnapshot(q, (snap) => {
       const dogs = snap.docs
@@ -194,7 +203,7 @@ export default function HomeMapScreen({ navigation }) {
       console.warn('Dogs listener error:', error);
     });
     return unsub;
-  }, [location]);
+  }, [location, currentUid]);
 
   // ── Establishments listener ──
   useEffect(() => {
@@ -728,7 +737,12 @@ export default function HomeMapScreen({ navigation }) {
         {/* ── Dog sheet content ── */}
         {selectedDog && (
           <>
-            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTopBar}>
+              <View style={styles.sheetHandle} />
+              <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Ionicons name="close" size={20} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
 
             <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               {/* Dog photo + name row */}
@@ -832,16 +846,18 @@ export default function HomeMapScreen({ navigation }) {
                 <Text style={styles.actionBtnTextLight}>Message Owner</Text>
               </TouchableOpacity>
             </ScrollView>
-            <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={12}>
-              <Ionicons name="close" size={20} color={colors.textLight} />
-            </TouchableOpacity>
           </>
         )}
 
         {/* ── Establishment sheet content ── */}
         {selectedEstablishment && (
           <>
-            <View style={styles.sheetHandle} />
+            <View style={styles.sheetTopBar}>
+              <View style={styles.sheetHandle} />
+              <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Ionicons name="close" size={20} color={colors.textLight} />
+              </TouchableOpacity>
+            </View>
 
             <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               {/* Sponsored disclosure (FTC compliance) */}
@@ -991,9 +1007,6 @@ export default function HomeMapScreen({ navigation }) {
                 </TouchableOpacity>
               )}
             </ScrollView>
-            <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={12}>
-              <Ionicons name="close" size={20} color={colors.textLight} />
-            </TouchableOpacity>
           </>
         )}
       </Animated.View>
@@ -1314,12 +1327,17 @@ const styles = StyleSheet.create({
     zIndex: 20, ...shadows.card,
     shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 16,
   },
+  sheetTopBar: {
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   sheetHandle: {
     width: 40, height: 4, borderRadius: 2,
-    backgroundColor: colors.border, alignSelf: 'center', marginTop: 12,
+    backgroundColor: colors.border,
   },
   sheetCloseBtn: {
-    position: 'absolute', top: 14, right: 16,
+    position: 'absolute', top: 8, right: 16,
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: colors.lightGray, alignItems: 'center', justifyContent: 'center',
   },
