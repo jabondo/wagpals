@@ -155,6 +155,7 @@ export default function HomeMapScreen({ navigation }) {
   const sheetAnim    = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
   const mapRef       = useRef(null);
+  const isClosing    = useRef(false);
 
   // ── Location ──
   useEffect(() => {
@@ -264,6 +265,7 @@ export default function HomeMapScreen({ navigation }) {
 
   // ── Sheet open / close ──
   function openSheet(dog) {
+    if (isClosing.current) return;
     setSelectedDog(dog);
     setSelectedEstablishment(null);
     Animated.parallel([
@@ -273,6 +275,7 @@ export default function HomeMapScreen({ navigation }) {
   }
 
   function openEstablishmentSheet(est) {
+    if (isClosing.current) return;
     setSelectedEstablishment(est);
     setSelectedDog(null);
     setOwnerName('');
@@ -291,11 +294,11 @@ export default function HomeMapScreen({ navigation }) {
   }
 
   function closeSheet() {
-    // Clear state immediately so touches reach the map again
+    isClosing.current = true;
+    setTimeout(() => { isClosing.current = false; }, 500);
     setSelectedDog(null);
     setOwnerName('');
     setSelectedEstablishment(null);
-    // Then animate the sheet down
     Animated.parallel([
       Animated.spring(sheetAnim, { toValue: SHEET_HEIGHT, useNativeDriver: true, tension: 80, friction: 14 }),
       Animated.timing(backdropAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
