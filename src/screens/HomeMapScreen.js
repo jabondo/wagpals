@@ -735,18 +735,6 @@ export default function HomeMapScreen({ navigation }) {
         </Animated.View>
       )}
 
-      {/* ── Sheet close button — outside Animated.View to avoid iOS touch conflicts ── */}
-      {sheetOpen && (
-        <TouchableOpacity
-          style={styles.sheetCloseBtnFloating}
-          onPress={closeSheet}
-          activeOpacity={0.7}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name="close" size={20} color={colors.textLight} />
-        </TouchableOpacity>
-      )}
-
       {/* ── Bottom Sheet ── */}
       <Animated.View
         style={[styles.sheet, { transform: [{ translateY: sheetAnim }] }]}
@@ -1022,6 +1010,18 @@ export default function HomeMapScreen({ navigation }) {
           </>
         )}
       </Animated.View>
+
+      {/* ── Sheet close button — rendered AFTER sheet so it sits on top ── */}
+      {sheetOpen && (
+        <TouchableOpacity
+          style={styles.sheetCloseBtnFloating}
+          onPress={closeSheet}
+          activeOpacity={0.7}
+          hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+        >
+          <Ionicons name="close" size={20} color={colors.textLight} />
+        </TouchableOpacity>
+      )}
 
       {/* ── Review Modal ── */}
       <Modal
