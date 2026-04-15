@@ -291,14 +291,15 @@ export default function HomeMapScreen({ navigation }) {
   }
 
   function closeSheet() {
+    // Clear state immediately so touches reach the map again
+    setSelectedDog(null);
+    setOwnerName('');
+    setSelectedEstablishment(null);
+    // Then animate the sheet down
     Animated.parallel([
       Animated.spring(sheetAnim, { toValue: SHEET_HEIGHT, useNativeDriver: true, tension: 80, friction: 14 }),
       Animated.timing(backdropAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
-    ]).start(() => {
-      setSelectedDog(null);
-      setOwnerName('');
-      setSelectedEstablishment(null);
-    });
+    ]).start();
   }
 
   // ── Submit review ──
@@ -734,6 +735,18 @@ export default function HomeMapScreen({ navigation }) {
         </Animated.View>
       )}
 
+      {/* ── Sheet close button — outside Animated.View to avoid iOS touch conflicts ── */}
+      {sheetOpen && (
+        <TouchableOpacity
+          style={styles.sheetCloseBtnFloating}
+          onPress={closeSheet}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons name="close" size={20} color={colors.textLight} />
+        </TouchableOpacity>
+      )}
+
       {/* ── Bottom Sheet ── */}
       <Animated.View
         style={[styles.sheet, { transform: [{ translateY: sheetAnim }] }]}
@@ -744,9 +757,6 @@ export default function HomeMapScreen({ navigation }) {
           <>
             <View style={styles.sheetTopBar}>
               <View style={styles.sheetHandle} />
-              <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <Ionicons name="close" size={20} color={colors.textLight} />
-              </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
@@ -859,9 +869,6 @@ export default function HomeMapScreen({ navigation }) {
           <>
             <View style={styles.sheetTopBar}>
               <View style={styles.sheetHandle} />
-              <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <Ionicons name="close" size={20} color={colors.textLight} />
-              </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
@@ -1332,19 +1339,24 @@ const styles = StyleSheet.create({
     zIndex: 20, ...shadows.card,
     shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 16,
   },
+  sheetCloseBtnFloating: {
+    position: 'absolute',
+    bottom: SHEET_HEIGHT - 44,
+    right: 16,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: colors.lightGray,
+    alignItems: 'center', justifyContent: 'center',
+    zIndex: 30,
+    elevation: 30,
+  },
   sheetTopBar: {
     height: 48,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   sheetHandle: {
     width: 40, height: 4, borderRadius: 2,
     backgroundColor: colors.border,
-  },
-  sheetCloseBtn: {
-    position: 'absolute', top: 8, right: 16,
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: colors.lightGray, alignItems: 'center', justifyContent: 'center',
   },
   sheetContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
 
