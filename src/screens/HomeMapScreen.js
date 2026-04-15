@@ -1315,6 +1315,7 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 14, right: 16,
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: colors.lightGray, alignItems: 'center', justifyContent: 'center',
+    zIndex: 10,
   },
   sheetContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
 
