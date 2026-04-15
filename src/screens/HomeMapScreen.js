@@ -729,9 +729,6 @@ export default function HomeMapScreen({ navigation }) {
         {selectedDog && (
           <>
             <View style={styles.sheetHandle} />
-            <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={12}>
-              <Ionicons name="close" size={20} color={colors.textLight} />
-            </TouchableOpacity>
 
             <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               {/* Dog photo + name row */}
@@ -835,6 +832,9 @@ export default function HomeMapScreen({ navigation }) {
                 <Text style={styles.actionBtnTextLight}>Message Owner</Text>
               </TouchableOpacity>
             </ScrollView>
+            <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={12}>
+              <Ionicons name="close" size={20} color={colors.textLight} />
+            </TouchableOpacity>
           </>
         )}
 
@@ -842,9 +842,6 @@ export default function HomeMapScreen({ navigation }) {
         {selectedEstablishment && (
           <>
             <View style={styles.sheetHandle} />
-            <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={12}>
-              <Ionicons name="close" size={20} color={colors.textLight} />
-            </TouchableOpacity>
 
             <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               {/* Sponsored disclosure (FTC compliance) */}
@@ -994,6 +991,9 @@ export default function HomeMapScreen({ navigation }) {
                 </TouchableOpacity>
               )}
             </ScrollView>
+            <TouchableOpacity style={styles.sheetCloseBtn} onPress={closeSheet} hitSlop={12}>
+              <Ionicons name="close" size={20} color={colors.textLight} />
+            </TouchableOpacity>
           </>
         )}
       </Animated.View>
@@ -1322,7 +1322,6 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 14, right: 16,
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: colors.lightGray, alignItems: 'center', justifyContent: 'center',
-    zIndex: 10,
   },
   sheetContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
 
