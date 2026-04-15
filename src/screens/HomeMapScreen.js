@@ -1014,18 +1014,6 @@ export default function HomeMapScreen({ navigation }) {
         )}
       </Animated.View>
 
-      {/* ── Sheet close button — rendered AFTER sheet so it sits on top ── */}
-      {sheetOpen && (
-        <TouchableOpacity
-          style={styles.sheetCloseBtnFloating}
-          onPress={closeSheet}
-          activeOpacity={0.7}
-          hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
-        >
-          <Ionicons name="close" size={20} color={colors.textLight} />
-        </TouchableOpacity>
-      )}
-
       {/* ── Review Modal ── */}
       <Modal
         visible={reviewModalVisible}
@@ -1341,16 +1329,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     zIndex: 20, ...shadows.card,
     shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 16,
-  },
-  sheetCloseBtnFloating: {
-    position: 'absolute',
-    bottom: SHEET_HEIGHT - 44,
-    right: 16,
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: colors.lightGray,
-    alignItems: 'center', justifyContent: 'center',
-    zIndex: 30,
-    elevation: 30,
   },
   sheetTopBar: {
     height: 48,
