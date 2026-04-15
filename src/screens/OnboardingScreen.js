@@ -15,14 +15,17 @@ import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import * as Facebook from 'expo-auth-session/providers/facebook';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   GoogleAuthProvider,
   FacebookAuthProvider,
+  OAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import { colors, borderRadius, spacing } from '../config/theme';
 
@@ -36,7 +39,36 @@ export default function OnboardingScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState(null); // 'google' | 'facebook' | null
+  const [socialLoading, setSocialLoading] = useState(null); // 'google' | 'facebook' | 'apple' | null
+  const [appleAvailable, setAppleAvailable] = useState(false);
+
+  // Refs
+  const appleSigningIn = useRef(false); // guard against double-tap on native Apple button
+  const nameHeight = useRef(new Animated.Value(0)).current;
+  const nameOpacity = useRef(new Animated.Value(0)).current;
+
+  // ── Shared helper: create owners doc on first sign-in ──
+  // Safe to call for any provider — no-ops if doc already exists.
+  async function ensureOwnerDoc(userCredential, overrides = {}) {
+    const uid = userCredential.user.uid;
+    const ownerRef = doc(db, 'owners', uid);
+    const ownerSnap = await getDoc(ownerRef);
+    if (!ownerSnap.exists()) {
+      await setDoc(ownerRef, {
+        name: overrides.name || userCredential.user.displayName || 'WagPals User',
+        email: overrides.email || userCredential.user.email || '',
+        createdAt: serverTimestamp(),
+        dogs: [],
+      });
+    }
+  }
+
+  // Check if Sign In with Apple is available on this device
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
+    }
+  }, []);
 
   // ── Google OAuth ──
   // Add your Google OAuth Web Client ID from Firebase Console →
@@ -51,9 +83,18 @@ export default function OnboardingScreen() {
       const credential = GoogleAuthProvider.credential(id_token);
       setSocialLoading('google');
       signInWithCredential(auth, credential)
+        .then(async (userCredential) => {
+          try {
+            await ensureOwnerDoc(userCredential);
+          } catch (firestoreErr) {
+            console.error('[Google] Firestore owners doc failed:', firestoreErr.code, firestoreErr.message);
+            setErrors({ general: 'Signed in, but profile setup failed. Some features may be limited.' });
+          }
+        })
         .catch(err => {
           console.error('[Google auth error]', err.code, err.message);
-          setErrors({ general: friendlyError(err.code, err.message) });
+          const msg = friendlyError(err.code, err.message);
+          if (msg) setErrors({ general: msg });
         })
         .finally(() => setSocialLoading(null));
     }
@@ -70,16 +111,87 @@ export default function OnboardingScreen() {
       const credential = FacebookAuthProvider.credential(access_token);
       setSocialLoading('facebook');
       signInWithCredential(auth, credential)
+        .then(async (userCredential) => {
+          try {
+            await ensureOwnerDoc(userCredential);
+          } catch (firestoreErr) {
+            console.error('[Facebook] Firestore owners doc failed:', firestoreErr.code, firestoreErr.message);
+            setErrors({ general: 'Signed in, but profile setup failed. Some features may be limited.' });
+          }
+        })
         .catch(err => {
           console.error('[Facebook auth error]', err.code, err.message);
-          setErrors({ general: friendlyError(err.code, err.message) });
+          const msg = friendlyError(err.code, err.message);
+          if (msg) setErrors({ general: msg });
         })
         .finally(() => setSocialLoading(null));
     }
   }, [fbResponse]);
 
-  const nameHeight = useRef(new Animated.Value(0)).current;
-  const nameOpacity = useRef(new Animated.Value(0)).current;
+  // ── Apple Sign-In ──
+  async function handleAppleSignIn() {
+    // Prevent double-tap: the native Apple button ignores the `disabled` prop
+    if (appleSigningIn.current) return;
+    appleSigningIn.current = true;
+    setSocialLoading('apple');
+    try {
+      // Generate a random nonce; Apple requires a SHA-256 hash of it,
+      // but Firebase needs the raw version to verify the token.
+      const rawNonce = Array.from(
+        { length: 16 },
+        () => Math.random().toString(36)[2]
+      ).join('');
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce
+      );
+
+      const appleCredential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+
+      const provider = new OAuthProvider('apple.com');
+      const firebaseCredential = provider.credential({
+        idToken: appleCredential.identityToken,
+        rawNonce,
+      });
+
+      const userCredential = await signInWithCredential(auth, firebaseCredential);
+
+      // Apple only sends name/email on the very first sign-in — capture them now.
+      // Use a separate try/catch so a Firestore failure doesn't look like an auth failure.
+      const firstName = appleCredential.fullName?.givenName ?? '';
+      const lastName = appleCredential.fullName?.familyName ?? '';
+      const displayName = [firstName, lastName].filter(Boolean).join(' ');
+      try {
+        await ensureOwnerDoc(userCredential, {
+          name: displayName || undefined,
+          email: appleCredential.email || undefined,
+        });
+      } catch (firestoreErr) {
+        // Auth succeeded — user is signed in. Profile creation failed (network blip,
+        // Firestore rules, etc.). Log it but don't block the user; the app can
+        // re-attempt doc creation on next sign-in via ensureOwnerDoc's exists() check.
+        console.error('[Apple] Firestore owners doc failed:', firestoreErr.code, firestoreErr.message);
+        setErrors({ general: 'Signed in, but profile setup failed. Some features may be limited.' });
+      }
+    } catch (err) {
+      if (err.code === 'ERR_REQUEST_CANCELED') {
+        // User dismissed the Apple sheet — no error needed
+      } else {
+        console.error('[Apple auth error]', err.code, err.message);
+        const msg = friendlyError(err.code, err.message);
+        if (msg) setErrors({ general: msg });
+      }
+    } finally {
+      appleSigningIn.current = false;
+      setSocialLoading(null);
+    }
+  }
 
   function switchMode(next) {
     setErrors({});
@@ -114,18 +226,25 @@ export default function OnboardingScreen() {
     try {
       if (mode === 'signup') {
         const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        await setDoc(doc(db, 'owners', cred.user.uid), {
-          name: name.trim(),
-          email: email.trim(),
-          createdAt: new Date().toISOString(),
-          dogs: [],
-        });
+        try {
+          await setDoc(doc(db, 'owners', cred.user.uid), {
+            name: name.trim(),
+            email: email.trim(),
+            createdAt: serverTimestamp(),
+            dogs: [],
+          });
+        } catch (firestoreErr) {
+          // Account was created — don't block the user, but surface a warning.
+          console.error('[Email signup] Firestore owners doc failed:', firestoreErr.code, firestoreErr.message);
+          setErrors({ general: 'Account created, but profile setup failed. Some features may be limited.' });
+        }
       } else {
         await signInWithEmailAndPassword(auth, email.trim(), password);
       }
     } catch (err) {
       console.error('[Auth error]', err.code, err.message);
-      setErrors({ general: friendlyError(err.code, err.message) });
+      const msg = friendlyError(err.code, err.message);
+      if (msg) setErrors({ general: msg });
     } finally {
       setLoading(false);
     }
@@ -139,9 +258,16 @@ export default function OnboardingScreen() {
       'auth/invalid-credential': 'Invalid email or password.',
       'auth/too-many-requests': 'Too many attempts. Try again later.',
       'auth/network-request-failed': 'Network error — check your connection.',
-      'auth/operation-not-allowed': 'Email sign-in is not enabled in Firebase.',
+      'auth/operation-not-allowed': 'This sign-in method is not enabled. Please contact support.',
+      'auth/user-disabled': 'This account has been disabled. Please contact support.',
+      'auth/account-exists-with-different-credential': 'An account already exists with this email using a different sign-in method.',
+      'auth/popup-closed-by-user': null, // silent — user closed it intentionally
+      'auth/cancelled-popup-request': null, // silent — duplicate popup
+      'ERR_REQUEST_UNKNOWN': 'Apple sign-in failed. Please try again.',
     };
-    return map[code] ?? `Error (${code ?? message ?? 'unknown'}). Please try again.`;
+    const friendly = map[code];
+    if (friendly === null) return null; // caller should suppress display
+    return friendly ?? `Something went wrong (${code ?? 'unknown'}). Please try again.`;
   }
 
   return (
@@ -242,6 +368,17 @@ export default function OnboardingScreen() {
                   </>
               }
             </TouchableOpacity>
+
+            {/* Sign in with Apple — iOS only */}
+            {Platform.OS === 'ios' && appleAvailable && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={27}
+                style={styles.appleBtn}
+                onPress={handleAppleSignIn}
+              />
+            )}
 
             {/* Continue with Facebook */}
             <TouchableOpacity
@@ -427,6 +564,12 @@ const styles = StyleSheet.create({
     color: colors.darkBrown,
     fontSize: 15,
     fontWeight: '600',
+  },
+  appleBtn: {
+    width: '85%',
+    alignSelf: 'center',
+    height: 54,
+    marginBottom: spacing.sm,
   },
   facebookBtn: {
     width: '85%',

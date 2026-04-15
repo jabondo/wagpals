@@ -19,7 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-// ─── SF center: 37.7749, -122.4194 ──────────────────────────────────────────
+// ─── Denver center: 39.7392, -104.9903 ──────────────────────────────────────────
 // Offsets are within ~0.3 miles of center.
 const TEST_DOGS = [
   {
@@ -33,7 +33,7 @@ const TEST_DOGS = [
       energyLevel: 'High',
       temperament: ['Friendly', 'Playful'],
       photoUri:    null,
-      location:    { latitude: 37.7769, longitude: -122.4172 }, // ~0.15 mi NE
+      location:    { latitude: 39.7412, longitude: -104.9881 }, // RiNo
     },
   },
   {
